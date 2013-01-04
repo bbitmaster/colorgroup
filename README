@@ -1,0 +1,21 @@
+This contains my experiments with generating an image that has a constraint that nearby colors should be grouped together.
+
+Initially, I saw a challenge to generate a 4096x4096 image that contains a single instance of every color in the RGB (256,256,256) color space. I had the idea to use an energy minimization function that would minimize the square difference of a pixel and it's nearby colors.
+
+Below are the programs in the order in which they were written
+
+-colorgroup-
+I wrote colorgroup using a simple genetic algorithm that behaved very poorly. After rethinking my algorithm and changing it, I wrote colorgroup2.
+
+-colorgroup2-
+After rethinking and heavily optimizaing my algorithm, I wrote this version.
+After running for many days on a fast CPU, it generates an interesting image.
+
+-ito_anneal-
+This was not written by me at all. I discovered it at the below URL after I had written colorgroup2. Apparently this person named Ito had the same idea I had, except he used simulated annealing instead of a genetic algorithm.
+http://d.hatena.ne.jp/ita/20100210/p1#seemore
+
+-colorgroup3-
+Taking inspiration from Ito, I decided to write a simulated annealing version. This version outputs to SDL so the scene can be viewed in real time.
+
+
