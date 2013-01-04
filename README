@@ -13,7 +13,10 @@ After running for many days on a fast CPU, it generates an interesting image.
 
 -ito_anneal-
 This was not written by me at all. I discovered it at the below URL after I had written colorgroup2. Apparently this person named Ito had the same idea I had, except he used simulated annealing instead of a genetic algorithm.
+
 http://d.hatena.ne.jp/ita/20100210/p1#seemore
+
+I do not know the license to this code.
 
 
 -colorgroup3-
