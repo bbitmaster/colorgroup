@@ -15,7 +15,6 @@ After running for many days on a fast CPU, it generates an interesting image.
 This was not written by me at all. I discovered it at the below URL after I had written colorgroup2. Apparently this person named Ito had the same idea I had, except he used simulated annealing instead of a genetic algorithm.
 http://d.hatena.ne.jp/ita/20100210/p1#seemore
 
+
 -colorgroup3-
 Taking inspiration from Ito, I decided to write a simulated annealing version. This version outputs to SDL so the scene can be viewed in real time.
-
-
