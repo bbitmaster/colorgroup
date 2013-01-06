@@ -8,6 +8,8 @@
 
 #include "mtwist.h"
 
+//#define SAVE_MOVIE
+
 #define ACCEPT_SIZE 262144
 
 typedef struct  {
@@ -364,9 +366,9 @@ int main(int argc,char *argv[]){
 		free(arg);
 	}
 	if(help){
-		printf("Usage: colorgroup -h -l -i<WIDTH,HEIGHT> -p<0-10> -s/-S -t<INITIAL_TEMP> -r<DECAY_RATE> -w<SWEEP_RATE> -o <RESUME_FILENAME>\n");
+		printf("Usage: colorgroup -h -l<FILENAME> -i<WIDTH,HEIGHT> -p<0-10> -s/-S -t<INITIAL_TEMP> -r<DECAY_RATE> -w<SWEEP_RATE> -o <RESUME_FILENAME>\n");
 		printf("-h Show this help message and exit.\n");
-		printf("-l load image from output.png\n");
+		printf("-l load image from FILENAME\n");
 		printf("-i<WIDTH,HEIGHT> specify width and height of newly created image (default 4096x4096)\n");
 		printf("-p<0-1> Specify the method of generating initial image\n");
 		printf("\t\t 0 - Fill image with unique colors in the RGB spectrum (default)\n");
@@ -443,6 +445,7 @@ int main(int argc,char *argv[]){
 					tmp_pixels[x] = x&0xFFFF00FF;
 				else
 					tmp_pixels[x] = x;
+			}
 			//select values randomly out of tmp_pixels to fill p->pixels
 			i = width*height;
 			printf("doing random selection...\n");
@@ -456,8 +459,6 @@ int main(int argc,char *argv[]){
 			}
 			printf("done random selection...\n");
 			free(tmp_pixels);
-
-		}
 	} else { //load_image
 		b = load_png_from_file(imagefiletoload);
 		if(b == NULL){
@@ -467,16 +468,16 @@ int main(int argc,char *argv[]){
 		width = b->width;
 		height = b->height;
 	}
-
+	
 	//initialize SDL (if applicable)
 	if(sdloutput){
+		printf("initializing SDL\n");
 		if(!sdl_init(width,height,&screen)){
 			return 1;
 		}
 	}
 
 	int img_size = width*height;
-
 
 	//setup simulated annealing
 	double t=initial_temp;
@@ -535,6 +536,14 @@ int main(int argc,char *argv[]){
 			printf("Done\n");
 			
 		}
+#ifdef SAVE_MOVIE
+		if(iteration%10 == 0){
+			char mfilename[100];
+			printf("Saving movie frame %d\n",iteration/10);
+			sprintf(mfilename,"movie/movie%d.png",iteration/10);
+			save_png_to_file(b,mfilename);
+		}
+#endif
 		iteration++;
 	}
 

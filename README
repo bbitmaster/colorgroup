@@ -9,7 +9,7 @@ I wrote colorgroup using a simple genetic algorithm that behaved very poorly. Af
 
 -colorgroup2-
 After rethinking and heavily optimizaing my algorithm, I wrote this version.
-After running for many days on a fast CPU, it generates an interesting image.
+After running for many days on a fast CPU, it generates an image that is only mildly interesting.
 
 -ito_anneal-
 This was not written by me at all. I discovered it at the below URL after I had written colorgroup2. Apparently this person named Ito had the same idea I had, except he used simulated annealing instead of a genetic algorithm.
@@ -18,6 +18,5 @@ http://d.hatena.ne.jp/ita/20100210/p1#seemore
 
 I do not know the license to this code.
 
-
 -colorgroup3-
-Taking inspiration from Ito, I decided to write a simulated annealing version. This version outputs to SDL so the scene can be viewed in real time.
+Taking inspiration from Ito, I decided to write a simulated annealing version. This version outputs to SDL so the scene can be viewed in real time. Many command line options are supported, run with -h to see the options.
