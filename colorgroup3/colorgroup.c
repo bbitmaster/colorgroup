@@ -8,19 +8,81 @@
 
 #include "mtwist.h"
 
-#define GEN_SWEEP_AMOUNT 1000000
-
 #define ACCEPT_SIZE 262144
-#define SWEEPS_PER_AREA 0.3
-#define TMAX .2
-#define TMIN 0.0001
-#define TEMPDECAY 0.9999
 
 typedef struct  {
 	uint32_t *pixels;
 	int width;
 	int height;
 } bitmap_t;
+
+
+//This is quick and dirty code to use libpng's high level interface.
+//It probably won't always work for all PNGs - I did not add a filler byte
+//so, PNGs that use RGB without alpha likely won't load correctly.
+//Also, this code is probably not endian independant.
+// -use PNG_TRANSFORM_BGR to change endianness-
+bitmap_t *load_png_from_file(const char *path){
+	bitmap_t *b = malloc(sizeof(bitmap_t *));
+	png_structp png_ptr = NULL;
+	png_infop info_ptr = NULL;
+	png_byte ** row_pointers = NULL;
+	FILE *fp;
+
+	if((fp = fopen(path,"rb")) == NULL){
+		fprintf(stderr,"error opening file '%s'\n",path);
+		goto err1;
+	}
+
+	png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING,NULL,NULL,NULL);
+	
+	if(png_ptr == NULL) {
+		printf("png_create_read_struct returned NULL\n");
+		fclose(fp);
+		goto err2;
+	}
+
+	info_ptr = png_create_info_struct(png_ptr);
+	if(info_ptr == NULL){
+		printf("png_create_info_struct returned NULL\n");
+		goto err2;
+	}
+
+	if (setjmp(png_jmpbuf(png_ptr))) {
+		goto err3;
+	}
+
+	png_init_io(png_ptr,fp);
+
+	png_set_sig_bytes(png_ptr,0);
+
+	png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_STRIP_16 |
+		PNG_TRANSFORM_PACKING | PNG_TRANSFORM_EXPAND , NULL);
+	b->height = png_get_image_height(png_ptr,info_ptr);
+	b->width = png_get_image_width(png_ptr,info_ptr);
+	png_set_bgr(png_ptr);
+
+	png_read_update_info(png_ptr,info_ptr);
+
+	b->pixels = malloc(4*b->width*b->height);
+	row_pointers = png_get_rows(png_ptr,info_ptr);
+
+
+	int y;
+	for(y = 0;y < b->height;y++) {
+		memcpy(&b->pixels[b->width*y],row_pointers[y],b->width*4);
+	}
+
+	//read image data
+	png_destroy_read_struct(&png_ptr,&info_ptr,NULL);
+	return b;
+err3:
+	png_destroy_read_struct(&png_ptr,&info_ptr,NULL);
+err2:
+	fclose(fp);
+err1:
+	return NULL;
+}
 
 int save_png_to_file(bitmap_t *b,const char *path){
 	FILE *fp;
@@ -125,10 +187,16 @@ int calculate_fitness(bitmap_t *bmp,int p1,uint32_t p1_val){
 
 	int fitness = 0;
 	int bmpsize = bmp->width*bmp->height;
+	//this code wraps top/bottom and left/right
+	//This allows the final images to be tiled
 	if(p1 - bmp->width >= 0)
 		fitness += pix_fitness(p1_val,bmp->pixels[p1 - bmp->width]);
+	else
+		fitness += pix_fitness(p1_val,bmp->pixels[bmpsize - p1]);
 	if(p1 + bmp->width < bmpsize)
 		fitness += pix_fitness(p1_val,bmp->pixels[p1 + bmp->width]);
+	else
+		fitness += pix_fitness(p1_val,bmp->pixels[p1%bmp->width]);
 	if(p1 - 1 >= 0)
 		fitness += pix_fitness(p1_val,bmp->pixels[p1 - 1]);
 	if(p1 + 1 < bmpsize)
@@ -175,12 +243,12 @@ void build_acceptance_prob(uint32_t *acceptance_prob,int sz,double t){
 	}
 }
 
-void do_simulated_annealing(double *t,uint64_t *improvements,bitmap_t *bmp){
+void do_simulated_annealing(double *t,uint64_t *improvements,double decay_rate,double sweep_rate,bitmap_t *bmp){
 	uint32_t accept_prob[ACCEPT_SIZE];
 	build_acceptance_prob(accept_prob,ACCEPT_SIZE,*t);
 	int img_size = bmp->width*bmp->height;
 	uint64_t i;
-	uint64_t sweep_amount = SWEEPS_PER_AREA*img_size;
+	uint64_t sweep_amount = sweep_rate*img_size;
 	for(i = 0;i < sweep_amount;i++){
 		//select 2 pixel locations
 		int p1 = mt_lrand()%img_size;
@@ -201,7 +269,6 @@ void do_simulated_annealing(double *t,uint64_t *improvements,bitmap_t *bmp){
 
 		int delta_fitness = fitness_swapped - fitness;
 		bool accept=true;
-
 		if(delta_fitness < 0){
 			accept = true;
 		} else {
@@ -217,54 +284,43 @@ void do_simulated_annealing(double *t,uint64_t *improvements,bitmap_t *bmp){
 			(*improvements)++;
 		}
 	}
-	(*t) = (*t)*TEMPDECAY;
-}
-
-void do_genetic_algorithm(uint64_t *improvements,bitmap_t *bmp){
-	int img_size = bmp->width*bmp->height;
-	uint64_t i;
-	for(i = 0;i < GEN_SWEEP_AMOUNT;i++){
-		//select 2 pixel locations
-		int p1 = mt_lrand()%img_size;
-		int p2 = mt_lrand()%img_size;
-
-		const int p1_pix = bmp->pixels[p1];
-		const int p2_pix = bmp->pixels[p2];
-
-		//calculate unswapped fitness
-		int fitness = 0;
-		fitness += calculate_fitness(bmp,p1,p1_pix);
-		fitness += calculate_fitness(bmp,p2,p2_pix);
-
-		//calculate swapped fitness
-		int fitness_swapped = 0;
-		fitness_swapped += calculate_fitness(bmp,p1,p2_pix);
-		fitness_swapped += calculate_fitness(bmp,p2,p1_pix);
-
-		if(fitness_swapped < fitness){
-			swap_values(&bmp->pixels[p1],&bmp->pixels[p2]);
-			(*improvements)++;
-		}
-	}
+	(*t) = (*t)*decay_rate;
 }
 
 int main(int argc,char *argv[]){
 	bool help=false;
-	bool loadimage=false;
 	bool saveoutput=true;
 	bool sdloutput=false;
 	int width=4096, height=4096;
 	int initialmethod=0;
 	int i=0;
+	double initial_temp=0.2;
+	double decay_rate=0.9999;
+	double sweep_rate=0.3;
 	SDL_Surface *screen;
+
+	char resumefilename[4096];
+	resumefilename[0] = 0;
+	char imagefiletoload[4096];
+	imagefiletoload[0] = 0;
+
+
+	uint64_t iteration=0;
+	uint64_t improvements=0;
 
 	for(i=1;i < argc;i++){
 		int arglen = strlen(argv[i]);
 		char *arg = (char *)malloc(sizeof(char)*(arglen+1));
 		strcpy(arg,argv[i]);
-		if(strcmp(arg,"-l") == 0){
-			loadimage=true;
+
+		if(strcmp(arg,"-h") == 0){
+			help=true;
 		}
+
+		if(strcmp(arg,"-l") == 0){
+			strcpy(imagefiletoload,&arg[2]);
+		}
+
 		if(arglen > 2 && arg[0] == '-' && arg[1] == 'i')
 		{
 			//printf("arg: %s\n",arg);
@@ -284,70 +340,133 @@ int main(int argc,char *argv[]){
 		if(strcmp(arg,"-S") == 0){
 			saveoutput=false;
 		}
+		if(arglen > 2 && arg[0] == '-' && arg[1] == 't')
+		{
+			initial_temp = atof(&arg[2]);
+		}
+		
+		if(arglen > 2 && arg[0] == '-' && arg[1] == 'r')
+		{
+			decay_rate = atof(&arg[2]);
+		}
+		if(arglen > 2 && arg[0] == '-' && arg[1] == 'w')
+		{
+			sweep_rate = atof(&arg[2]);
+		}
 		if(strcmp(arg,"-o") == 0){
 			sdloutput=true;
 		}
-		if(strcmp(arg,"-h") == 0){
-			help=true;
+		//if a resume file is specified...
+		if(arg[0] != '-'){
+			if(strlen(arg) < 4096)
+				strcpy(resumefilename,arg);
 		}
 		free(arg);
 	}
 	if(help){
-		printf("Usage: colorgroup -l -i<WIDTH,HEIGHT> -p<0-10> -s/-S -o\n");
+		printf("Usage: colorgroup -h -l -i<WIDTH,HEIGHT> -p<0-10> -s/-S -t<INITIAL_TEMP> -r<DECAY_RATE> -w<SWEEP_RATE> -o <RESUME_FILENAME>\n");
+		printf("-h Show this help message and exit.\n");
 		printf("-l load image from output.png\n");
 		printf("-i<WIDTH,HEIGHT> specify width and height of newly created image (default 4096x4096)\n");
 		printf("-p<0-1> Specify the method of generating initial image\n");
 		printf("\t\t 0 - Fill image with unique colors in the RGB spectrum (default)\n");
 		printf("\t\t 1 - Fill with red\\blue gradient\n");
-		printf("-s save to output.png periodically(default)  -S skip saving\n");
+		printf("-s save to output.png and state_info periodically(default)  -S skip saving\n");
 		printf("-o display output to SDL\n");
+		printf("-t<INITIAL_TEMP> set initial simulated annealing temperature (default 0.2)\n");
+		printf("-r<DECAY_RATE> set simulated annealing decay rate (default 0.9999)\n");
+		printf("-w<SWEEP_RATE> Set simulated annealing sweep rate. (default 0.3)\n");
+		printf("\tSweeps are done using Sweep Rate as a percentage of the area of the image\n");
+		printf("<RESUME_FILENAME> This points to a state_info file that was previously saved.\n");
+		printf("For loading parameters from that file and resuming");
 		return 0;
 	}
+
+	//if a resume file was specified, then we actually need to load parameters from it.
+	if(resumefilename[0] != 0){
+		FILE *fp = fopen(resumefilename,"r");
+		if(fp == NULL){
+			printf("ERROR Opening Resume File: %s\n",resumefilename);
+			return 1;
+		}
+		char line[4096];
+		//read skipping comment lines that start with #
+		while(1){
+			fgets(line,4096,fp);
+			if(line[0] != '#')break;
+		}
+		char *tok;
+		tok = strtok(line,",\r\n");
+		iteration = atoi(tok);
+		tok = strtok(NULL,",\r\n");
+		initial_temp = atof(tok);
+		tok = strtok(NULL,",\r\n");
+		decay_rate = atof(tok);
+		tok = strtok(NULL,",\r\n");
+		sweep_rate = atof(tok);
+		tok = strtok(NULL,",\r\n");
+		strcpy(imagefiletoload,tok);
+		fclose(fp);
+	}
+
+
 	printf("colorgroup - Program to group colors via simulated annealing\n");
     printf("NOTE: use -h to see help for supported arguments\n");
 	printf("Running with arguments: \n");
-	printf("\tload image from output.png: %s\n",(loadimage)?"true":"false");
-	if(!loadimage){
+	printf("\tload image from output.png: %s\n",(imagefiletoload[0])?imagefiletoload:"false");
+	if(!imagefiletoload[0]){
 		printf("\twidth: %d height: %d\n",width,height);
 		printf("\timage generation method (-p): %d\n",initialmethod);
 	}
+	printf("\tInitial Temperature: %lf\n",initial_temp);
+	printf("\tDecay Rate: %lf\n",decay_rate);
+	printf("\tSweep Rate: %lf\n",sweep_rate);
 	printf("\tperiodically save to output.png: %s\n",(saveoutput)?"true":"false");
 	printf("\tSDL output: %s\n",(sdloutput)?"true":"false");
 
 
 	mt_seed();
-	//TODO: add png loading code to load image
-	//Generate initial image
-	bitmap_t *b = (bitmap_t *)malloc(sizeof(bitmap_t));
-	b->pixels = (uint32_t *)malloc(sizeof(uint32_t)*width*height);
-	b->width = width;
-	b->height = height;
+	bitmap_t *b;
+	if(!imagefiletoload[0]){
+			//Generate initial image
+			b = (bitmap_t *)malloc(sizeof(bitmap_t));
+			b->pixels = (uint32_t *)malloc(sizeof(uint32_t)*width*height);
+			b->width = width;
+			b->height = height;
 
-	//TODO: only do this if -p0 is specified
-	int32_t *tmp_pixels = (int32_t *)malloc(sizeof(uint32_t)*4096*4096);
+			int32_t *tmp_pixels = (int32_t *)malloc(sizeof(uint32_t)*4096*4096);
 
-	//fill tmp_pixels with ordered set of all possible colors
-	int x;
-	for(x = 0;x < 4096*4096;x++){
-		if(initialmethod == 1)
-			tmp_pixels[x] = x&0xFFFF00FF;
-		else
-			tmp_pixels[x] = x;
+			//fill tmp_pixels with ordered set of all possible colors
+			int x;
+			for(x = 0;x < 4096*4096;x++){
+				if(initialmethod == 1)
+					tmp_pixels[x] = x&0xFFFF00FF;
+				else
+					tmp_pixels[x] = x;
+			//select values randomly out of tmp_pixels to fill p->pixels
+			i = width*height;
+			printf("doing random selection...\n");
+			while(i > 0){
+				int selection = mt_lrand()%(4096*4096);
+				if(tmp_pixels[selection] == -1)
+					continue;
+				b->pixels[i] = tmp_pixels[selection];
+				tmp_pixels[selection] = -1;
+				i--;
+			}
+			printf("done random selection...\n");
+			free(tmp_pixels);
+
+		}
+	} else { //load_image
+		b = load_png_from_file(imagefiletoload);
+		if(b == NULL){
+			printf("Error Loading PNG\n");
+			return 1;
+		}
+		width = b->width;
+		height = b->height;
 	}
-
-	//select values randomly out of tmp_pixels to fill p->pixels
-	i = width*height;
-	printf("doing random selection...\n");
-	while(i > 0){
-		int selection = mt_lrand()%(4096*4096);
-		if(tmp_pixels[selection] == -1)
-			continue;
-		b->pixels[i] = tmp_pixels[selection];
-		tmp_pixels[selection] = -1;
-		i--;
-	}
-	printf("done random selection...\n");
-	free(tmp_pixels);
 
 	//initialize SDL (if applicable)
 	if(sdloutput){
@@ -358,12 +477,9 @@ int main(int argc,char *argv[]){
 
 	int img_size = width*height;
 
-	//setup genetic algorithm...
-	uint64_t iteration=0;
-	uint64_t improvements=0;
 
 	//setup simulated annealing
-	double t=TMAX;
+	double t=initial_temp;
 
 	//setp SDL stuff
 	bool quit=false;
@@ -398,16 +514,8 @@ int main(int argc,char *argv[]){
 			SDL_Flip(screen);
 			
 		}
-//		do_genetic_algorithm(&improvements,b);
-//		if(iteration%50 == 0){
-//			uint64_t total_fitness = calculate_total_fitness(b);
-//			printf("iteration %ld, improvements %d, total_fitness %ld\n",iteration*GEN_SWEEP_AMOUNT,
-//					improvements,total_fitness);
-//			improvements=0;
-//		}
 
-
-		do_simulated_annealing(&t,&improvements,b);
+		do_simulated_annealing(&t,&improvements,decay_rate,sweep_rate,b);
 		if(iteration%50 == 0){
 			uint64_t total_fitness = calculate_total_fitness(b);
 			printf("iteration %ld, temperature %lf, total_fitness %ld\n",iteration,
@@ -416,11 +524,16 @@ int main(int argc,char *argv[]){
 		}
 			
 		if(saveoutput && iteration%1000 == 0){
-			printf("Saving File ... ");
+			printf("Saving PNG and State Files ... ");
 			if(save_png_to_file(b,"output.png") == -1){
 				printf("Error saving\n");
 			}
+			FILE *statefile=fopen("state_info","w");
+			fprintf(statefile,"#iteration,temperature,decay_rate,sweep_rate,filename\n");
+			fprintf(statefile,"%ld,%lf,%lf,%lf,%s\n",iteration,t,decay_rate,sweep_rate,"output.png");
+			fclose(statefile);
 			printf("Done\n");
+			
 		}
 		iteration++;
 	}
